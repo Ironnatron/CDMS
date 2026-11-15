@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ task.title }} | Task manager{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'tasks:list' %}">Back to tasks</a>
+<article class="card detail-card">
+    <span class="badge {{ task.status }}">{{ task.get_status_display }}</span>
+    <h1>{{ task.title }}</h1>
+    <div class="description">
+        {% if task.description %}
+            {{ task.description|linebreaks }}
+        {% else %}
+            <p>No description.</p>
+        {% endif %}
+    </div>
+    <dl class="metadata">
+        <dt>Due date</dt><dd>{{ task.due_date|date:"M j, Y"|default:"Not set" }}</dd>
+        <dt>Created</dt><dd>{{ task.created_at|date:"M j, Y, H:i" }} UTC</dd>
+        <dt>Updated</dt><dd>{{ task.updated_at|date:"M j, Y, H:i" }} UTC</dd>
+    </dl>
+    <div class="actions">
+        <a class="button" href="{% url 'tasks:update' task.pk %}">Edit task</a>
+        <a class="button danger" href="{% url 'tasks:delete' task.pk %}">Delete task</a>
+    </div>
+</article>
+{% endblock %}

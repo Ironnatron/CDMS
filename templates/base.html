@@ -1,0 +1,40 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Task manager{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+    <header class="site-header">
+        <nav class="container navigation" aria-label="Main navigation">
+            <a class="brand" href="{% url 'tasks:list' %}">Task manager</a>
+            <div class="nav-actions">
+                {% if user.is_authenticated %}
+                    <span class="username">{{ user.username }}</span>
+                    <form method="post" action="{% url 'logout' %}">
+                        {% csrf_token %}
+                        <button class="button secondary" type="submit">Log out</button>
+                    </form>
+                {% else %}
+                    <a href="{% url 'login' %}">Log in</a>
+                    <a href="{% url 'signup' %}">Sign up</a>
+                {% endif %}
+            </div>
+        </nav>
+    </header>
+    <main class="container">
+        {% if messages %}
+            <div aria-live="polite">
+                {% for message in messages %}
+                    <div class="message {{ message.tags }}" role="status">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        {% block content %}{% endblock %}
+    </main>
+    <footer class="container site-footer">Your tasks are private to your account.</footer>
+</body>
+</html>

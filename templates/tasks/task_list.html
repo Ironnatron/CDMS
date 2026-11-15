@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-heading">
+    <div>
+        <h1>Your tasks</h1>
+        <p class="muted">Plan, track, and finish your work.</p>
+    </div>
+    <a class="button" href="{% url 'tasks:create' %}">New task</a>
+</div>
+{% if tasks %}
+    <div class="task-grid">
+        {% for task in tasks %}
+            <article class="card task-card">
+                <span class="badge {{ task.status }}">{{ task.get_status_display }}</span>
+                <h2><a href="{{ task.get_absolute_url }}">{{ task.title }}</a></h2>
+                <p class="muted">{{ task.description|truncatechars:140|default:"No description yet." }}</p>
+                {% if task.due_date %}
+                    <p class="due-date">Due {{ task.due_date|date:"M j, Y" }}</p>
+                {% endif %}
+                <div class="actions">
+                    <a href="{% url 'tasks:update' task.pk %}">Edit</a>
+                    <a class="danger-link" href="{% url 'tasks:delete' task.pk %}">Delete</a>
+                </div>
+            </article>
+        {% endfor %}
+    </div>
+    {% if is_paginated %}
+        <nav class="pagination" aria-label="Task pages">
+            {% if page_obj.has_previous %}
+                <a href="?page={{ page_obj.previous_page_number }}">Previous</a>
+            {% endif %}
+            <span>Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
+            {% if page_obj.has_next %}
+                <a href="?page={{ page_obj.next_page_number }}">Next</a>
+            {% endif %}
+        </nav>
+    {% endif %}
+{% else %}
+    <section class="card empty-state">
+        <h2>A fresh start</h2>
+        <p class="muted">You haven't created any tasks yet.</p>
+        <a class="button" href="{% url 'tasks:create' %}">Create your first task</a>
+    </section>
+{% endif %}
+{% endblock %}
