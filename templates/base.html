@@ -27,6 +27,9 @@
                     </form>
                 {% else %}
                     <a href="{% url 'login' %}">Log in</a>
+                    {% if synthetic_documents_enabled %}
+                        <a href="{% url 'documents:admin_login' %}">Admin sign in</a>
+                    {% endif %}
                     <a href="{% url 'signup' %}">Sign up</a>
                 {% endif %}
             </div>

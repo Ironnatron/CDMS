@@ -4,11 +4,12 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.views import LoginView
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, IntegrityError, transaction
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.utils.cache import patch_cache_control
 from django.utils.crypto import constant_time_compare
 from django.utils.decorators import method_decorator
@@ -53,6 +54,45 @@ WRITE_ROLES = (
 )
 ADMIN_ROLES = (DocumentRole.Role.SUPERADMIN, DocumentRole.Role.ADMINISTRATOR)
 SUPERADMIN_ROLES = (DocumentRole.Role.SUPERADMIN,)
+
+
+class DocumentAdminLoginView(LoginView):
+    template_name = "documents/admin_login.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not settings.SYNTHETIC_DOCUMENTS_ENABLED:
+            raise Http404("Document prototype is disabled.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            role = DocumentRole.objects.filter(user=request.user).values_list(
+                "role", flat=True
+            ).first()
+            if role in ADMIN_ROLES:
+                return redirect(self.destination_for_role(role))
+        return super().get(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        role = DocumentRole.objects.filter(user=form.get_user()).values_list(
+            "role", flat=True
+        ).first()
+        if role not in ADMIN_ROLES:
+            form.add_error(None, "This account does not have administrator access.")
+            return self.form_invalid(form)
+        self.destination = self.destination_for_role(role)
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return self.destination
+
+    @staticmethod
+    def destination_for_role(role):
+        return reverse(
+            "documents:roles"
+            if role == DocumentRole.Role.SUPERADMIN
+            else "documents:list"
+        )
 
 
 @method_decorator(never_cache, name="dispatch")

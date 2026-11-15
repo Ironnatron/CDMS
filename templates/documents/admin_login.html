@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Administrator sign in | Task manager{% endblock %}
+{% block content %}
+{% include "documents/warning.html" %}
+<section class="card auth-card">
+    <h1>Administrator sign in</h1>
+    <p class="muted">Use your existing account. A document administrator or superadmin role is required.</p>
+    <form method="post">
+        {% csrf_token %}
+        {% include "includes/form_fields.html" %}
+        <button class="button" type="submit">Sign in</button>
+    </form>
+    <p><a href="{% url 'login' %}">Regular user sign in</a></p>
+    <p class="muted">The first superadmin must complete document setup using a regular user account.</p>
+</section>
+{% endblock %}

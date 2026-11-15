@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    DocumentAdminLoginView,
     DocumentCreateView,
     DocumentDeleteView,
     DocumentDetailView,
@@ -14,6 +15,7 @@ from .views import (
 app_name = "documents"
 urlpatterns = [
     path("", DocumentListView.as_view(), name="list"),
+    path("admin-login/", DocumentAdminLoginView.as_view(), name="admin_login"),
     path("new/", DocumentCreateView.as_view(), name="create"),
     path("setup/", SuperadminSetupView.as_view(), name="setup"),
     path("roles/", RoleListView.as_view(), name="roles"),

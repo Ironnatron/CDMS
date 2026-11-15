@@ -392,3 +392,109 @@ class SuperadminSetupTests(TestCase):
         )
         self.assertContains(response, "Setup has already been completed.")
         self.assertFalse(DocumentRole.objects.exists())
+
+
+@override_settings(SYNTHETIC_DOCUMENTS_ENABLED=True)
+class DocumentAdminLoginTests(TestCase):
+    password = "Synthetic-login-test-phrase-948!"
+
+    @classmethod
+    def setUpTestData(cls):
+        for username, role in [
+            ("superuser_doc", DocumentRole.Role.SUPERADMIN),
+            ("admin_doc", DocumentRole.Role.ADMINISTRATOR),
+            ("clinician_doc", DocumentRole.Role.CLINICIAN),
+            ("viewer_doc", DocumentRole.Role.VIEWER),
+            ("unassigned_doc", None),
+        ]:
+            user = User.objects.create_user(username, password=cls.password)
+            if role:
+                DocumentRole.objects.create(user=user, role=role)
+        DocumentSetup.objects.create(user=User.objects.get(username="superuser_doc"))
+
+    def test_admin_and_superadmin_sign_in_to_role_specific_destinations(self):
+        for username, destination in [
+            ("superuser_doc", "documents:roles"),
+            ("admin_doc", "documents:list"),
+        ]:
+            with self.subTest(username=username):
+                client = Client()
+                response = client.post(
+                    reverse("documents:admin_login"),
+                    {
+                        "username": username,
+                        "password": self.password,
+                        "next": "https://untrusted.example/",
+                    },
+                )
+                self.assertRedirects(response, reverse(destination))
+                self.assertEqual(
+                    int(client.session["_auth_user_id"]),
+                    User.objects.get(username=username).pk,
+                )
+
+    def test_non_admin_roles_and_unassigned_account_cannot_use_admin_login(self):
+        for username in ["clinician_doc", "viewer_doc", "unassigned_doc"]:
+            with self.subTest(username=username):
+                client = Client()
+                response = client.post(
+                    reverse("documents:admin_login"),
+                    {"username": username, "password": self.password},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "does not have administrator access")
+                self.assertNotIn("_auth_user_id", client.session)
+
+    def test_failed_password_does_not_authenticate(self):
+        response = self.client.post(
+            reverse("documents:admin_login"),
+            {"username": "admin_doc", "password": "wrong"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["form"].non_field_errors())
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_signed_in_admins_can_open_panel_without_signing_in_again(self):
+        for username, destination in [
+            ("superuser_doc", "documents:roles"),
+            ("admin_doc", "documents:list"),
+        ]:
+            with self.subTest(username=username):
+                self.client.force_login(User.objects.get(username=username))
+                self.assertRedirects(
+                    self.client.get(reverse("documents:admin_login")),
+                    reverse(destination),
+                )
+
+    def test_admin_login_csrf_and_feature_switch(self):
+        client = Client(enforce_csrf_checks=True)
+        url = reverse("documents:admin_login")
+        self.assertEqual(
+            client.post(url, {"username": "admin_doc", "password": self.password}).status_code,
+            403,
+        )
+        response = client.get(url)
+        self.assertContains(response, "Administrator sign in")
+        self.assertIn("no-store", response["Cache-Control"])
+        response = client.post(
+            url,
+            {
+                "username": "admin_doc",
+                "password": self.password,
+                "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+            },
+        )
+        self.assertRedirects(response, reverse("documents:list"))
+        with override_settings(SYNTHETIC_DOCUMENTS_ENABLED=False):
+            self.assertEqual(client.get(url).status_code, 404)
+            self.assertNotContains(client.get(reverse("login")), "Admin sign in")
+
+    def test_role_revocation_blocks_management_after_successful_login(self):
+        user = User.objects.get(username="admin_doc")
+        self.client.post(
+            reverse("documents:admin_login"),
+            {"username": user.username, "password": self.password},
+        )
+        DocumentRole.objects.filter(user=user).delete()
+        self.assertEqual(self.client.get(reverse("documents:list")).status_code, 403)
+        self.assertEqual(self.client.get(reverse("documents:roles")).status_code, 403)

@@ -80,6 +80,13 @@ automatically receive a document role. Tasks remain private to their owners and
 use their existing permissions. Uploaded documents must be deleted before the
 uploader's user account can be deleted.
 
+After setup, select **Admin sign in** or visit `/documents/admin-login/`. Use your
+existing account credentials: a document superadmin goes directly to role
+management, and a document administrator goes to the shared document list.
+Clinicians, viewers, and users without a document role use the regular login.
+This is a separate sign-in page, not a separate set of accounts; authorization
+is still checked for every document request.
+
 **Enable locally and initialize the document superadmin:**
 
 1. Apply migrations with `.\.venv\Scripts\python.exe manage.py migrate`, then
@@ -212,6 +219,7 @@ render.yaml              Render web service and PostgreSQL Blueprint
 | `/documents/<id>/download/` | Role-checked attachment download |
 | `/documents/<id>/delete/` | Administrator-only confirmation and deletion |
 | `/documents/setup/` | One-time, secret-protected superadmin setup |
+| `/documents/admin-login/` | Separate sign-in for document administrators and superadmin |
 | `/documents/roles/` | Superadmin-only role management |
 | `/admin/` | Trusted staff administration |
 | `/health/` | GET database health: 200 `{"status":"ok"}` or 503 |
