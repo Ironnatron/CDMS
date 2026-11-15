@@ -28,6 +28,7 @@ def document_path(instance, filename):
 
 class DocumentRole(models.Model):
     class Role(models.TextChoices):
+        SUPERADMIN = "superadmin", "Superadmin"
         ADMINISTRATOR = "administrator", "Administrator"
         CLINICIAN = "clinician", "Clinician"
         VIEWER = "viewer", "Viewer"
@@ -39,8 +40,34 @@ class DocumentRole(models.Model):
     )
     role = models.CharField(max_length=20, choices=Role.choices)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["role"],
+                condition=models.Q(role="superadmin"),
+                name="one_document_superadmin",
+            ),
+        ]
+
     def __str__(self):
         return f"{self.user} - {self.get_role_display()}"
+
+
+class DocumentSetup(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="document_setup",
+    )
+    completed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(id=1), name="one_document_setup"
+            ),
+        ]
 
 
 class Document(models.Model):

@@ -8,7 +8,7 @@
         <p class="muted">Synthetic prototype &middot; {{ document_role|title }}</p>
     </div>
     <div class="actions">
-        {% if document_role == "administrator" %}
+        {% if document_role == "superadmin" %}
             <a href="{% url 'documents:roles' %}">Manage roles</a>
         {% endif %}
         {% if document_role != "viewer" %}
@@ -24,7 +24,7 @@
                 <p class="muted">Uploaded by {{ document.uploaded_by.username }} on {{ document.uploaded_at|date:"M j, Y" }} UTC</p>
                 <div class="actions">
                     <a href="{% url 'documents:download' document.pk %}">Download</a>
-                    {% if document_role == "administrator" %}
+                    {% if document_role == "administrator" or document_role == "superadmin" %}
                         <a class="danger-link" href="{% url 'documents:delete' document.pk %}">Delete</a>
                     {% endif %}
                 </div>

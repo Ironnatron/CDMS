@@ -16,6 +16,9 @@
                     <a href="{% url 'tasks:list' %}">Tasks</a>
                     {% if synthetic_documents_enabled %}
                         <a href="{% url 'documents:list' %}">Documents</a>
+                        {% if document_setup_available %}
+                            <a href="{% url 'documents:setup' %}">Set up documents</a>
+                        {% endif %}
                     {% endif %}
                     <span class="username">{{ user.username }}</span>
                     <form method="post" action="{% url 'logout' %}">

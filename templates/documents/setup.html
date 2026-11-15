@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Set up document superadmin | Task manager{% endblock %}
+{% block content %}
+{% include "documents/warning.html" %}
+<section class="card form-card">
+    <h1>Set up document superadmin</h1>
+    {% if completed %}
+        <p>Setup has already been completed. Ask the document superadmin for access.</p>
+        <a href="{% url 'tasks:list' %}">Back to tasks</a>
+    {% elif not token_configured %}
+        <p>Setup is unavailable. The operator must configure a long, random one-time setup secret.</p>
+    {% else %}
+        <p>The currently signed-in account, <strong>{{ user.username }}</strong>, will become the only document superadmin. Only proceed on a trusted device.</p>
+        <form method="post">
+            {% csrf_token %}
+            {% include "includes/form_fields.html" %}
+            <button class="button" type="submit">Complete one-time setup</button>
+        </form>
+    {% endif %}
+</section>
+{% endblock %}

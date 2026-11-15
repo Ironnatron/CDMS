@@ -12,7 +12,7 @@
     </dl>
     <div class="actions">
         <a class="button" href="{% url 'documents:download' document.pk %}">Download</a>
-        {% if document_role == "administrator" %}
+        {% if document_role == "administrator" or document_role == "superadmin" %}
             <a class="button danger" href="{% url 'documents:delete' document.pk %}">Delete</a>
         {% endif %}
     </div>

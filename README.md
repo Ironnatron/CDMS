@@ -63,33 +63,53 @@ or separate organizations. User registration does not grant document access.
 
 | Document role | Permissions |
 | --- | --- |
-| Administrator | Read and download all documents, upload, delete, and assign or remove roles |
+| Superadmin | Read, upload, download, delete, and assign or remove roles |
+| Administrator | Read, upload, download, and delete documents |
 | Clinician | Read, download, and upload documents |
 | Viewer | Read and download documents |
 | No role | No document access, even if the user has a task account |
 
-Administrators cannot remove or downgrade their own role through the interface.
-A Django superuser or staff account does not automatically receive a document
-role. Tasks remain private to their owners and use their existing permissions.
-Uploaded documents must be deleted before the uploader's user account can be
-deleted.
+There is **at most one** document superadmin, enforced by a database constraint.
+Before the one-time setup there is none. Only the superadmin can manage other
+users' document roles. The superadmin cannot remove or downgrade their own role
+through the interface, and there is no superadmin transfer UI. Database access or
+Django administrative access is still privileged and must be restricted.
+Existing administrator roles remain intact after migration, but they no longer
+grant role-management access. A Django superuser or staff account does not
+automatically receive a document role. Tasks remain private to their owners and
+use their existing permissions. Uploaded documents must be deleted before the
+uploader's user account can be deleted.
 
-**Enable locally and create the first document administrator:**
+**Enable locally and initialize the document superadmin:**
 
-1. Make sure migrations have been applied with `manage.py migrate` and create an
-   ordinary account at `/accounts/signup/`. Use a fictional username.
-2. Set `SYNTHETIC_DOCUMENTS_ENABLED=True` in your existing `.env` file.
-3. In a separate PowerShell terminal, run:
+1. Apply migrations with `.\.venv\Scripts\python.exe manage.py migrate`, then
+   create an ordinary account at `/accounts/signup/`. Use a fictional username.
+2. Generate a unique, random setup secret locally:
 
    ```powershell
-   .\.venv\Scripts\python.exe manage.py set_document_role YOUR_USERNAME administrator
+   .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(64))"
    ```
 
-4. Restart `runserver`, log in as that user, and open **Documents**. In **Manage
-   roles**, assign existing active accounts the clinician, viewer, or administrator
-   role. Access changes take effect on the next request.
-5. Upload a fictional `.pdf` or `.txt` file, up to 5 MB. No file content is
+3. In your existing `.env`, set `SYNTHETIC_DOCUMENTS_ENABLED=True` and set
+   `DOCUMENT_SUPERADMIN_SETUP_TOKEN` to the generated secret. Do not commit or
+   share it. The setup checks its length (43–256 characters), but length alone
+   does not establish randomness; use the generator above.
+4. Restart `runserver`, log in as the account that should become the superadmin,
+   and select **Set up documents** or visit `/documents/setup/`. Check the
+   username displayed, then enter the setup secret.
+5. After setup succeeds, remove `DOCUMENT_SUPERADMIN_SETUP_TOKEN` from `.env` and
+   restart the server. In **Documents > Manage roles**, the superadmin can assign
+   active accounts the clinician, viewer, or administrator role. Access changes
+   take effect on the next request.
+6. Upload a fictional `.pdf` or `.txt` file, up to 5 MB. No file content is
    inspected or scanned; file extensions do not prove a file is safe.
+
+The setup secret is required only for the first setup; any signed-in user who
+possesses it can claim that role until setup completes. Keep it private, and do
+not leave the setup window open unattended. Setup is recorded in the database
+and cannot be repeated through the interface even if the token remains set.
+Protect access to the superadmin account: no role-transfer or account-recovery
+workflow is included.
 
 Set `SYNTHETIC_DOCUMENTS_ENABLED=False` and restart to disable **all** document
 routes. This does not erase existing files or database entries. Files are stored
@@ -104,41 +124,21 @@ ephemeral**: uploaded files may disappear on restart, spin-down, or redeploy whi
 their database records remain. Missing-file downloads show an error; an
 administrator can delete the stale record. Do not rely on this as a backup.
 
-1. Under the web service's **Environment**, set
-   `SYNTHETIC_DOCUMENTS_ENABLED` to `True`; choose **Save, rebuild, and deploy**.
-   Never enable this for real clinical or patient data.
-2. Register a fictional account on the deployed site. The free service has no
-   Shell, so the first administrator must be assigned from a trusted local machine.
-3. In Render's database **Info > Networking**, temporarily allow **only your trusted
-   machine's public IP address** (`/32` for IPv4). Note the existing rules so
-   you can restore them. Obtain the database's **external** PostgreSQL URL from
-   **Connect**; it contains credentials and must remain private.
-4. Open a **new PowerShell window** in this project, with dependencies installed
-   and migrations already deployed, then run:
-
-   ```powershell
-   $env:DJANGO_DEBUG = 'False'
-   $env:DJANGO_ALLOWED_HOSTS = 'localhost'
-   $env:DJANGO_SECRET_KEY = & .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(64))"
-   $secureUrl = Read-Host "Paste the external PostgreSQL URL (hidden)" -AsSecureString
-   $env:DATABASE_URL = [System.Net.NetworkCredential]::new('', $secureUrl).Password
-   try {
-       & .\.venv\Scripts\python.exe manage.py set_document_role YOUR_USERNAME administrator
-       if ($LASTEXITCODE -ne 0) { throw "Role assignment failed; see the error above." }
-   } finally {
-       Remove-Item Env:\DATABASE_URL, Env:\DJANGO_SECRET_KEY, Env:\DJANGO_DEBUG, Env:\DJANGO_ALLOWED_HOSTS
-       Remove-Variable secureUrl
-   }
-   ```
-
-   Replace `YOUR_USERNAME` with the already-registered fictional account. This
-   command uses the external database connection, not your local SQLite database.
-   The temporary secret above is only for the local management command and does
-   not change Render's `DJANGO_SECRET_KEY`.
-5. Restore the database's previous networking rules immediately, including an
-   empty allowlist if using the supplied Blueprint. Log in and use **Documents >
-   Manage roles** to grant other accounts access. Do not commit the database URL
-   or send it to anyone.
+1. Push the code and migration to GitHub and wait for Render to deploy them.
+2. Generate a setup secret on your computer using the command in the local setup
+   section above. Copy it privately; do not commit it or use Render's shorter
+   automatic secret generator.
+3. Under the web service's **Environment**, set `SYNTHETIC_DOCUMENTS_ENABLED` to
+   `True` and `DOCUMENT_SUPERADMIN_SETUP_TOKEN` to the generated secret. Choose
+   **Save, rebuild, and deploy**. Never enable this for real clinical data.
+4. Register or log in as the intended fictional superadmin account. Open
+   `/documents/setup/`, verify the displayed username, and submit the secret.
+   The free Render service does not need Shell or public PostgreSQL access for
+   this flow.
+5. Immediately remove `DOCUMENT_SUPERADMIN_SETUP_TOKEN` in Render's **Environment**
+   and choose **Save and deploy**. A redeploy can clear any temporary files.
+   The database remembers setup is complete. Log in and use **Documents >
+   Manage roles** to grant other accounts access.
 
 This prototype lacks, among other things, clinical-grade security review, audit
 logging, malware scanning, durable encrypted document storage, backups, email
@@ -179,7 +179,6 @@ tasks/
 documents/
   models.py               Shared synthetic documents and per-user document roles
   forms.py / views.py     Upload validation and role-checked operations
-  management/commands/    First-administrator role assignment
   tests.py / migrations/  Prototype tests and database migrations
 templates/
   base.html               Shared navigation and messages
@@ -209,10 +208,11 @@ render.yaml              Render web service and PostgreSQL Blueprint
 | `/tasks/<id>/edit/` | Edit a task |
 | `/tasks/<id>/delete/` | GET confirmation; POST deletion |
 | `/documents/` | Shared synthetic documents, when enabled and role-authorized |
-| `/documents/new/` | Synthetic file upload for clinicians and administrators |
+| `/documents/new/` | Synthetic file upload for clinicians, administrators, and superadmin |
 | `/documents/<id>/download/` | Role-checked attachment download |
 | `/documents/<id>/delete/` | Administrator-only confirmation and deletion |
-| `/documents/roles/` | Administrator-only role management |
+| `/documents/setup/` | One-time, secret-protected superadmin setup |
+| `/documents/roles/` | Superadmin-only role management |
 | `/admin/` | Trusted staff administration |
 | `/health/` | GET database health: 200 `{"status":"ok"}` or 503 |
 
@@ -412,6 +412,7 @@ an existing app to a new database does not automatically transfer its data.
 | `DJANGO_DEBUG` | `True` locally only; defaults to `False` |
 | `DATABASE_URL` | Optional locally; required PostgreSQL URL in production |
 | `SYNTHETIC_DOCUMENTS_ENABLED` | Explicit opt-in; defaults to `False`. Synthetic data only |
+| `DOCUMENT_SUPERADMIN_SETUP_TOKEN` | One-time setup secret; remove after setup |
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated exact hostnames, without schemes |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | Comma-separated origins including `https://` |
 | `RENDER_EXTERNAL_HOSTNAME` | Provided by Render; automatically allowed |

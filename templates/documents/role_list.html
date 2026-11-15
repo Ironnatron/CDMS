@@ -5,7 +5,7 @@
 <a class="back-link" href="{% url 'documents:list' %}">Back to documents</a>
 <section class="card form-card">
     <h1>Manage document roles</h1>
-    <p>Every assigned role can read and download all documents. Clinicians and administrators can upload; only administrators can delete and manage roles.</p>
+    <p>Every assigned role can read and download all documents. Clinicians, administrators, and the superadmin can upload; administrators and the superadmin can delete. Only the superadmin can manage roles.</p>
     <p>Users must already have an active account. Accounts have no document access until assigned a role.</p>
     <form method="post">
         {% csrf_token %}

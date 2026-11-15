@@ -5,18 +5,19 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
-from django.db import DatabaseError
+from django.db import DatabaseError, IntegrityError, transaction
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.utils.cache import patch_cache_control
+from django.utils.crypto import constant_time_compare
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.cache import never_cache
 from django.views.generic import CreateView, DeleteView, DetailView, ListView
 
-from .forms import DocumentForm, RoleForm
-from .models import Document, DocumentRole
+from .forms import DocumentForm, RoleForm, SuperadminSetupForm
+from .models import Document, DocumentRole, DocumentSetup
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +46,64 @@ class DocumentAccessMixin(LoginRequiredMixin):
 
 
 READ_ROLES = tuple(DocumentRole.Role.values)
-WRITE_ROLES = (DocumentRole.Role.ADMINISTRATOR, DocumentRole.Role.CLINICIAN)
-ADMIN_ROLES = (DocumentRole.Role.ADMINISTRATOR,)
+WRITE_ROLES = (
+    DocumentRole.Role.SUPERADMIN,
+    DocumentRole.Role.ADMINISTRATOR,
+    DocumentRole.Role.CLINICIAN,
+)
+ADMIN_ROLES = (DocumentRole.Role.SUPERADMIN, DocumentRole.Role.ADMINISTRATOR)
+SUPERADMIN_ROLES = (DocumentRole.Role.SUPERADMIN,)
+
+
+@method_decorator(never_cache, name="dispatch")
+class SuperadminSetupView(LoginRequiredMixin, View):
+    def dispatch(self, request, *args, **kwargs):
+        if not settings.SYNTHETIC_DOCUMENTS_ENABLED:
+            raise Http404("Document prototype is disabled.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request):
+        return self.render_page(request, SuperadminSetupForm())
+
+    def post(self, request):
+        if DocumentSetup.objects.filter(pk=1).exists():
+            return self.render_page(request, SuperadminSetupForm())
+        form = SuperadminSetupForm(request.POST)
+        token = settings.DOCUMENT_SUPERADMIN_SETUP_TOKEN
+        if form.is_valid():
+            if not 43 <= len(token) <= 256 or not constant_time_compare(
+                form.cleaned_data["setup_token"], token
+            ):
+                form.add_error("setup_token", "Invalid or unavailable setup secret.")
+            else:
+                try:
+                    with transaction.atomic():
+                        DocumentSetup.objects.create(pk=1, user=request.user)
+                        DocumentRole.objects.update_or_create(
+                            user=request.user,
+                            defaults={"role": DocumentRole.Role.SUPERADMIN},
+                        )
+                except IntegrityError:
+                    if DocumentSetup.objects.filter(pk=1).exists():
+                        logger.warning("Document superadmin setup was already completed.")
+                        return self.render_page(request, SuperadminSetupForm())
+                    raise
+                logger.info("Document superadmin initialized for user ID %s.", request.user.pk)
+                messages.success(request, "Document superadmin setup completed.")
+                return redirect("documents:roles")
+        return self.render_page(request, form)
+
+    def render_page(self, request, form):
+        completed = DocumentSetup.objects.filter(pk=1).exists()
+        if completed:
+            return render(request, "documents/setup.html", {"completed": True})
+        token_configured = 43 <= len(settings.DOCUMENT_SUPERADMIN_SETUP_TOKEN) <= 256
+        return render(
+            request,
+            "documents/setup.html",
+            {"form": form, "token_configured": token_configured},
+            status=200 if token_configured else 503,
+        )
 
 
 class DocumentListView(DocumentAccessMixin, ListView):
@@ -135,7 +192,7 @@ class DocumentDeleteView(DocumentAccessMixin, DeleteView):
 
 
 class RoleListView(DocumentAccessMixin, View):
-    allowed_roles = ADMIN_ROLES
+    allowed_roles = SUPERADMIN_ROLES
 
     def get(self, request):
         return self.render_page(request, RoleForm())
@@ -145,8 +202,8 @@ class RoleListView(DocumentAccessMixin, View):
         if form.is_valid():
             user = form.cleaned_data["username"]
             role = form.cleaned_data["role"]
-            if user == request.user and role != DocumentRole.Role.ADMINISTRATOR:
-                form.add_error("role", "You cannot change your own administrator role.")
+            if user == request.user:
+                form.add_error("role", "You cannot change your own superadmin role.")
             else:
                 DocumentRole.objects.update_or_create(user=user, defaults={"role": role})
                 messages.success(request, "Document role updated.")
@@ -163,12 +220,12 @@ class RoleListView(DocumentAccessMixin, View):
 
 
 class RoleRemoveView(DocumentAccessMixin, View):
-    allowed_roles = ADMIN_ROLES
+    allowed_roles = SUPERADMIN_ROLES
 
     def post(self, request, pk):
         role = get_object_or_404(DocumentRole, pk=pk)
         if role.user_id == request.user.pk:
-            messages.error(request, "You cannot remove your own administrator role.")
+            messages.error(request, "You cannot remove your own superadmin role.")
         else:
             role.delete()
             messages.success(request, "Document access removed.")

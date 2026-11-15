@@ -6,13 +6,13 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.core.management import call_command
-from django.core.management.base import CommandError
+from django.db import IntegrityError, transaction
+from django.db.models.deletion import ProtectedError
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from .forms import MAX_DOCUMENT_SIZE
-from .models import Document, DocumentRole
+from .models import Document, DocumentRole, DocumentSetup
 
 User = get_user_model()
 
@@ -22,15 +22,18 @@ class DocumentPrototypeTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.admin = User.objects.create_user("docadmin")
+        cls.superadmin = User.objects.create_user("docsuperadmin")
         cls.clinician = User.objects.create_user("clinician")
         cls.viewer = User.objects.create_user("viewer")
         cls.outsider = User.objects.create_user("outsider")
         for user, role in [
+            (cls.superadmin, DocumentRole.Role.SUPERADMIN),
             (cls.admin, DocumentRole.Role.ADMINISTRATOR),
             (cls.clinician, DocumentRole.Role.CLINICIAN),
             (cls.viewer, DocumentRole.Role.VIEWER),
         ]:
             DocumentRole.objects.create(user=user, role=role)
+        DocumentSetup.objects.create(user=cls.superadmin)
 
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -60,6 +63,7 @@ class DocumentPrototypeTests(TestCase):
             ("delete", [document.pk]),
             ("roles", []),
             ("remove_role", [role.pk]),
+            ("setup", []),
         ]
         with override_settings(SYNTHETIC_DOCUMENTS_ENABLED=False):
             for name, args in routes:
@@ -98,7 +102,7 @@ class DocumentPrototypeTests(TestCase):
     def test_role_permissions_and_direct_requests(self):
         document = self.create_document()
         other_role = self.viewer.document_role
-        for user in [self.admin, self.clinician, self.viewer]:
+        for user in [self.superadmin, self.admin, self.clinician, self.viewer]:
             self.client.force_login(user)
             self.assertEqual(self.client.get(reverse("documents:list")).status_code, 200)
             self.assertEqual(self.client.get(document.get_absolute_url()).status_code, 200)
@@ -106,12 +110,13 @@ class DocumentPrototypeTests(TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(b"".join(response.streaming_content), b"fictional")
             response.close()
-            is_admin = user == self.admin
+            is_admin = user in (self.superadmin, self.admin)
+            is_superadmin = user == self.superadmin
             can_upload = user != self.viewer
             for name, args, allowed in [
                 ("create", [], can_upload),
                 ("delete", [document.pk], is_admin),
-                ("roles", [], is_admin),
+                ("roles", [], is_superadmin),
             ]:
                 with self.subTest(user=user.username, route=name):
                     self.assertEqual(
@@ -123,6 +128,7 @@ class DocumentPrototypeTests(TestCase):
                     self.client.post(reverse("documents:delete", args=[document.pk])).status_code,
                     403,
                 )
+            if not is_superadmin:
                 self.assertEqual(
                     self.client.post(reverse("documents:remove_role", args=[other_role.pk])).status_code,
                     403,
@@ -204,8 +210,8 @@ class DocumentPrototypeTests(TestCase):
         self.assertFalse(file_path.exists())
         self.assertFalse(Document.objects.filter(pk=document.pk).exists())
 
-    def test_administrator_assigns_updates_and_removes_access(self):
-        self.client.force_login(self.admin)
+    def test_superadmin_assigns_updates_and_removes_access(self):
+        self.client.force_login(self.superadmin)
         url = reverse("documents:roles")
         response = self.client.post(url, {"username": "outsider", "role": "viewer"})
         self.assertRedirects(response, url)
@@ -220,35 +226,36 @@ class DocumentPrototypeTests(TestCase):
         self.client.force_login(self.outsider)
         self.assertEqual(self.client.get(reverse("documents:list")).status_code, 403)
 
-    def test_admin_cannot_revoke_or_change_own_role(self):
-        self.client.force_login(self.admin)
+    def test_superadmin_cannot_revoke_or_change_own_role(self):
+        self.client.force_login(self.superadmin)
         response = self.client.post(
-            reverse("documents:roles"), {"username": "docadmin", "role": "viewer"}
+            reverse("documents:roles"), {"username": "docsuperadmin", "role": "viewer"}
         )
-        self.assertContains(response, "You cannot change your own administrator role.")
+        self.assertContains(response, "You cannot change your own superadmin role.")
         response = self.client.post(
-            reverse("documents:remove_role", args=[self.admin.document_role.pk]), follow=True
+            reverse("documents:remove_role", args=[self.superadmin.document_role.pk]), follow=True
         )
-        self.assertContains(response, "You cannot remove your own administrator role.")
-        self.assertEqual(DocumentRole.objects.get(user=self.admin).role, "administrator")
+        self.assertContains(response, "You cannot remove your own superadmin role.")
+        self.assertEqual(DocumentRole.objects.get(user=self.superadmin).role, "superadmin")
 
     def test_invalid_or_inactive_role_assignment_is_rejected(self):
-        self.client.force_login(self.admin)
+        self.client.force_login(self.superadmin)
         self.outsider.is_active = False
         self.outsider.save()
         for data in [
             {"username": "not-a-user", "role": "viewer"},
             {"username": "outsider", "role": "viewer"},
             {"username": "viewer", "role": "invalid"},
+            {"username": "viewer", "role": "superadmin"},
         ]:
             response = self.client.post(reverse("documents:roles"), data)
             self.assertEqual(response.status_code, 200)
             self.assertTrue(response.context["form"].errors)
-        self.assertEqual(DocumentRole.objects.count(), 3)
+        self.assertEqual(DocumentRole.objects.count(), 4)
 
     def test_mutations_require_csrf(self):
         client = Client(enforce_csrf_checks=True)
-        client.force_login(self.admin)
+        client.force_login(self.superadmin)
         document = self.create_document()
         for name, args in [
             ("create", []),
@@ -261,14 +268,127 @@ class DocumentPrototypeTests(TestCase):
         self.assertTrue(Document.objects.filter(pk=document.pk).exists())
         self.assertTrue(DocumentRole.objects.filter(user=self.viewer).exists())
 
-    def test_bootstrap_command_requires_existing_active_user(self):
-        call_command("set_document_role", "outsider", "administrator", verbosity=0)
-        self.assertEqual(DocumentRole.objects.get(user=self.outsider).role, "administrator")
-        with self.assertRaises(CommandError):
-            call_command("set_document_role", "does-not-exist", "viewer", verbosity=0)
-
     def test_document_pages_are_not_cacheable(self):
         self.client.force_login(self.viewer)
         response = self.client.get(reverse("documents:list"))
         self.assertIn("no-store", response["Cache-Control"])
         self.assertContains(response, "Synthetic data only.")
+
+    def test_existing_admin_cannot_assign_roles_or_revoke_access(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(
+            self.client.post(
+                reverse("documents:roles"),
+                {"username": "outsider", "role": "administrator"},
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.post(
+                reverse("documents:remove_role", args=[self.viewer.document_role.pk])
+            ).status_code,
+            403,
+        )
+        self.assertFalse(DocumentRole.objects.filter(user=self.outsider).exists())
+        self.assertTrue(DocumentRole.objects.filter(user=self.viewer).exists())
+
+    def test_database_rejects_second_superadmin(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                DocumentRole.objects.create(
+                    user=self.outsider, role=DocumentRole.Role.SUPERADMIN
+                )
+        self.assertEqual(
+            DocumentRole.objects.filter(role=DocumentRole.Role.SUPERADMIN).count(), 1
+        )
+
+    def test_setup_owner_cannot_be_deleted_but_other_roles_can(self):
+        with self.assertRaises(ProtectedError):
+            self.superadmin.delete()
+        viewer_id = self.viewer.pk
+        self.viewer.delete()
+        self.assertFalse(DocumentRole.objects.filter(user_id=viewer_id).exists())
+
+
+@override_settings(
+    SYNTHETIC_DOCUMENTS_ENABLED=True,
+    DOCUMENT_SUPERADMIN_SETUP_TOKEN="synthetic-setup-token-example-not-a-real-secret-123456789",
+)
+class SuperadminSetupTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.first = User.objects.create_user("first")
+        cls.second = User.objects.create_user("second")
+        cls.token = "synthetic-setup-token-example-not-a-real-secret-123456789"
+
+    def test_authenticated_setup_promotes_existing_admin_and_is_one_time(self):
+        DocumentRole.objects.create(user=self.first, role=DocumentRole.Role.ADMINISTRATOR)
+        self.client.force_login(self.first)
+        response = self.client.post(
+            reverse("documents:setup"), {"setup_token": self.token}
+        )
+        self.assertRedirects(response, reverse("documents:roles"))
+        self.assertEqual(
+            DocumentRole.objects.get(user=self.first).role, DocumentRole.Role.SUPERADMIN
+        )
+        self.assertEqual(DocumentSetup.objects.get(pk=1).user, self.first)
+        self.client.force_login(self.second)
+        response = self.client.post(
+            reverse("documents:setup"), {"setup_token": self.token}
+        )
+        self.assertContains(response, "Setup has already been completed.")
+        self.assertFalse(DocumentRole.objects.filter(user=self.second).exists())
+        self.assertEqual(DocumentRole.objects.filter(role="superadmin").count(), 1)
+
+    def test_invalid_token_and_unconfigured_token_never_grant_access(self):
+        self.client.force_login(self.first)
+        response = self.client.post(
+            reverse("documents:setup"), {"setup_token": "wrong"}
+        )
+        self.assertContains(response, "Invalid or unavailable setup secret.")
+        self.assertFalse(DocumentSetup.objects.exists())
+        for token in ["", "too-short", "x" * 257]:
+            with self.subTest(token_length=len(token)):
+                with override_settings(DOCUMENT_SUPERADMIN_SETUP_TOKEN=token):
+                    response = self.client.post(
+                        reverse("documents:setup"), {"setup_token": token}
+                    )
+                    self.assertEqual(response.status_code, 503)
+                    self.assertFalse(DocumentSetup.objects.exists())
+                    self.assertFalse(DocumentRole.objects.exists())
+
+    def test_setup_requires_authentication_csrf_and_feature_enabled(self):
+        url = reverse("documents:setup")
+        client = Client(enforce_csrf_checks=True)
+        self.assertEqual(client.get(url).status_code, 302)
+        client.force_login(self.first)
+        self.assertEqual(client.post(url, {"setup_token": self.token}).status_code, 403)
+        with override_settings(SYNTHETIC_DOCUMENTS_ENABLED=False):
+            self.assertEqual(client.get(url).status_code, 404)
+        client.get(url)
+        response = client.post(
+            url,
+            {
+                "setup_token": self.token,
+                "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+            },
+        )
+        self.assertRedirects(response, reverse("documents:roles"))
+
+    def test_setup_secret_is_never_echoed_and_setup_page_is_not_cached(self):
+        self.client.force_login(self.first)
+        response = self.client.post(
+            reverse("documents:setup"), {"setup_token": "incorrect-secret-value"}
+        )
+        self.assertNotContains(response, "incorrect-secret-value")
+        self.assertNotContains(response, self.token)
+        self.assertIn("no-store", response["Cache-Control"])
+
+    def test_marker_blocks_reinitialization_even_if_role_removed_outside_app(self):
+        DocumentSetup.objects.create(user=self.first)
+        self.client.force_login(self.second)
+        response = self.client.post(
+            reverse("documents:setup"), {"setup_token": self.token}
+        )
+        self.assertContains(response, "Setup has already been completed.")
+        self.assertFalse(DocumentRole.objects.exists())

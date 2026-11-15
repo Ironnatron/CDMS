@@ -28,7 +28,13 @@ class DocumentForm(forms.ModelForm):
 
 class RoleForm(forms.Form):
     username = forms.CharField(max_length=150)
-    role = forms.ChoiceField(choices=DocumentRole.Role.choices)
+    role = forms.ChoiceField(
+        choices=[
+            (role.value, role.label)
+            for role in DocumentRole.Role
+            if role != DocumentRole.Role.SUPERADMIN
+        ]
+    )
 
     def clean_username(self):
         username = self.cleaned_data["username"]
@@ -36,3 +42,12 @@ class RoleForm(forms.Form):
             return get_user_model().objects.get(username=username, is_active=True)
         except get_user_model().DoesNotExist:
             raise forms.ValidationError("No active account has that username.")
+
+
+class SuperadminSetupForm(forms.Form):
+    setup_token = forms.CharField(
+        label="One-time setup secret",
+        strip=False,
+        max_length=256,
+        widget=forms.PasswordInput(attrs={"autocomplete": "off"}),
+    )

@@ -116,6 +116,7 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 SYNTHETIC_DOCUMENTS_ENABLED = (
     os.environ.get("SYNTHETIC_DOCUMENTS_ENABLED", "False").lower() == "true"
 )
+DOCUMENT_SUPERADMIN_SETUP_TOKEN = os.environ.get("DOCUMENT_SUPERADMIN_SETUP_TOKEN", "")
 PRIVATE_DOCUMENT_ROOT = BASE_DIR / "private_documents"
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},

@@ -8,12 +8,14 @@ from .views import (
     DocumentListView,
     RoleListView,
     RoleRemoveView,
+    SuperadminSetupView,
 )
 
 app_name = "documents"
 urlpatterns = [
     path("", DocumentListView.as_view(), name="list"),
     path("new/", DocumentCreateView.as_view(), name="create"),
+    path("setup/", SuperadminSetupView.as_view(), name="setup"),
     path("roles/", RoleListView.as_view(), name="roles"),
     path("roles/<int:pk>/remove/", RoleRemoveView.as_view(), name="remove_role"),
     path("<int:pk>/", DocumentDetailView.as_view(), name="detail"),
