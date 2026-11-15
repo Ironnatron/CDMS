@@ -116,16 +116,36 @@ Timestamps are shown in UTC.
 
 ## 3. Deploy to Render with PostgreSQL
 
-**The included Blueprint provisions paid resources:** a Starter web service and a
-Basic 256 MB PostgreSQL database. Review current pricing in Render before applying
-it. A paid web service supports pre-deploy migrations and the dashboard Shell;
-a paid database avoids the short lifetime of free databases. Nothing is deployed
-merely by running this code locally.
+**The included Blueprint selects a free web service and free Render PostgreSQL.**
+It is for demos, not production. Render's free database **expires after 30 days**,
+then becomes inaccessible; Render deletes it and its data after a 14-day grace
+period unless it is upgraded. The free database has no managed backups. Export
+any data you need before expiry; an export requires separately enabling and
+restricting external database access, since the Blueprint disables it by default.
+See [Render's free-tier limits](https://render.com/docs/free) for current details.
+
+The free web service sleeps after 15 minutes without inbound traffic and may take
+about a minute to wake up. It has an ephemeral filesystem and no Render Shell.
+Free usage has monthly limits, and overages can be billed if a payment method is
+present; review your Render billing and usage settings. Render permits only one
+active free Postgres database per workspace. If Render still requests payment or
+verification after both plans show **Free**, check its on-screen requirements or
+contact Render support; this project cannot bypass account requirements.
 
 ### A. Push the project to GitHub
 
-Create an empty GitHub repository, then run these commands in this directory.
-Replace the example URL with your own repository URL:
+If you already connected and pushed this project to GitHub, commit and push the
+updated Blueprint first:
+
+```powershell
+git add render.yaml README.md
+git --no-pager diff --cached
+git commit -m "Configure free Render deployment"
+git push origin main
+```
+
+For a new project instead, create an **empty** GitHub repository, then run these
+commands in this directory. Replace the example URL with your repository URL:
 
 ```powershell
 git init
@@ -146,20 +166,27 @@ grant Render access only to the repository you want to deploy.
 1. Sign in at <https://dashboard.render.com/>.
 2. Open **Blueprints**, select **New Blueprint Instance** (or **New > Blueprint**).
 3. Connect your GitHub repository and select its `main` branch.
-4. Render detects the root `render.yaml`. Review the web service, database, region,
-   and charges, then apply the Blueprint.
+4. Render detects the root `render.yaml`. **Confirm both the web service and
+   database say Free and the estimated charges are zero before applying.**
+   If the dashboard still shows paid plans, make sure your latest commit is pushed
+   and Render is using the correct repository and branch.
 5. Wait for the database and web service to finish provisioning.
 6. Open the web service's public `https://...onrender.com` URL.
 
+If you already created paid resources, pushing this file alone does not guarantee
+they have been downgraded or stopped. Review their plans and charges in the
+dashboard and handle any paid resources separately. Do not delete a database that
+contains data you need.
+
 The Blueprint:
 
-- Creates the database and web service in the same region.
+- Creates a free database and a free web service in the same region.
 - Injects the database's internal connection URL into `DATABASE_URL`.
 - Generates a private `DJANGO_SECRET_KEY`.
 - Sets `DJANGO_DEBUG=False`.
-- Runs `bash build.sh` to install packages, collect CSS, and check deployment settings.
-- Runs `python manage.py migrate --no-input` as a **pre-deploy command**. Migration
-  failure stops the deployment; migrations are not performed by each Gunicorn worker.
+- Runs `bash build.sh` to install packages, collect CSS, and check deployment settings,
+  then runs `python manage.py migrate --no-input` during the build. The free plan
+  does not support a pre-deploy command. A migration failure fails the build.
 - Starts Gunicorn on Render's assigned `$PORT`.
 - Uses `/health/` to check database connectivity.
 - Disables public database access through `ipAllowList: []`; the web service
@@ -169,17 +196,13 @@ Django automatically reads Render's `RENDER_EXTERNAL_HOSTNAME` into the allowed
 hosts and trusted HTTPS origins. You do not need to guess the assigned hostname.
 The app trusts Render's forwarded HTTPS header only when `RENDER=true`.
 
-### C. Create an administrator
+### C. Create a normal account
 
-In the paid web service's **Shell** tab:
-
-```bash
-python manage.py createsuperuser
-```
-
-Enter credentials interactively. Visit `https://YOUR_SERVICE.onrender.com/admin/`.
-Do not put admin passwords in source code, the Blueprint, or a build command.
-Normal users register on `/accounts/signup/`.
+Visit `https://YOUR_SERVICE.onrender.com/accounts/signup/`, create an account,
+and log in. The free web service does not provide Render Shell access, so the
+interactive `createsuperuser` command cannot be run there. Normal task management
+does not require a Django admin account. Do not put admin passwords in source
+code, environment examples, or build commands.
 
 ### D. Verify the live deployment
 
@@ -190,8 +213,8 @@ Normal users register on `/accounts/signup/`.
    it cannot see user A's tasks or open an A-owned task URL.
 5. Log out and verify that `/` redirects to login.
 6. Create a task, redeploy, and verify it remains in PostgreSQL.
-7. Check Render logs for application errors and run `python manage.py check --deploy`
-   in the service Shell.
+7. Check Render build and application logs for errors. The build already runs
+   `python manage.py check --deploy`.
 
 Example public health check from PowerShell:
 
@@ -214,51 +237,47 @@ After changing models, generate and commit migrations locally:
 
 Commit and push the code **and migration files**. Render redeploys on pushes to the
 linked branch. Use backward-compatible schema changes: the old application may
-continue serving requests while pre-deploy migrations run.
+continue serving requests while build-time migrations run. Migrations modify the
+live database even if a later deployment step fails.
 
-Code rollback does not undo database migrations. Back up the database before
-destructive schema changes and verify that backups can actually be restored.
+Code rollback does not undo database migrations. Free Render Postgres has no
+managed backups; export data you need and verify you can restore it before making
+destructive changes.
 
 ## 4. Manual Render deployment (alternative to the Blueprint)
 
 Do not do this as well as applying the Blueprint; choose one deployment method.
 
-1. Create a paid PostgreSQL database and paid Python web service in the same region.
+1. Create a **free** PostgreSQL database and a **free** Python web service in the
+   same region, and verify charges before confirming.
 2. Connect the service to your GitHub repository.
 3. Configure:
 
 | Setting | Value |
 | --- | --- |
-| Build command | `bash build.sh` |
-| Pre-deploy command | `python manage.py migrate --no-input` |
-| Start command | `python -m gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --access-logfile - --error-logfile -` |
+| Build command | `bash build.sh && python manage.py migrate --no-input` |
+| Pre-deploy command | Leave empty; unavailable on the free web plan |
+| Start command | `python -m gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --access-logfile - --error-logfile -` |
 | Health check path | `/health/` |
 | `DJANGO_DEBUG` | `False` |
 | `DJANGO_SECRET_KEY` | Generate a strong random secret in Render |
 | `DATABASE_URL` | Database **internal** connection URL |
 
-The root `.python-version` selects Python 3.12. Restrict the database's external
-access in its settings. Follow the same admin creation and verification steps.
+The root `.python-version` selects Python 3.12. Disable the database's external
+access in its settings unless you need it for a controlled export. Follow the
+normal signup and verification steps above.
 
-### Free demo option
+### Longer-lived free database option
 
-Render's free web service is suitable for a demo, not production: it sleeps after
-15 minutes of inactivity, has cold starts, and has an ephemeral filesystem.
-Free PostgreSQL expires after 30 days according to Render's current documentation.
-Do not use a free database for data you need to retain.
-
-For a temporary free demo, create resources manually, omit the pre-deploy command,
-and use this build command to migrate after the regular build:
-
-```bash
-bash build.sh && python manage.py migrate --no-input
-```
-
-Keep the other environment variables and start command as above, and use
-PostgreSQL, never SQLite. This build-time migration workaround lacks the paid
-pre-deploy phase; it is not the recommended production setup. A free web service
-does not provide the Shell used above for creating an admin; normal signup still
-works. Check current free-tier limits before choosing this option.
+If you need to keep data beyond 30 days without paying for Render PostgreSQL,
+[Neon's free PostgreSQL plan](https://neon.com/pricing) is a possible alternative,
+subject to its own usage limits and terms. Create a free Neon project, then deploy
+the Render **web service manually** as described above, using Neon's PostgreSQL
+connection string for `DATABASE_URL` instead of creating a Render database.
+Keep the connection string secret and confirm TLS is enabled. Do not apply the
+included Blueprint for this alternative: it creates a separate Render database.
+Neon is a separate provider and will receive your application data. Switching
+an existing app to a new database does not automatically transfer its data.
 
 ## 5. Environment and production operations
 
@@ -304,11 +323,11 @@ Before a public business launch:
 | Symptom | Resolution |
 | --- | --- |
 | Missing-secret startup error | Generate/set `DJANGO_SECRET_KEY`; do not leave the example blank |
-| Database connection or SSL error | Verify the internal PostgreSQL URL, same region, database status, and Render logs |
+| Database connection or SSL error | Verify the database URL, provider status, TLS, and Render logs; use the internal URL for Render PostgreSQL |
 | HTTP 400 / `DisallowedHost` | Set the exact hostname in `DJANGO_ALLOWED_HOSTS` |
 | CSRF 403 after adding a custom domain | Set its full HTTPS origin and confirm proxy/TLS configuration |
 | CSS missing or manifest error | Ensure `collectstatic` succeeded and the static file is committed; redeploy |
-| Missing tables | Check pre-deploy migration logs and committed migration files |
+| Missing tables | Check build-time migration logs and committed migration files |
 | Redirect loop outside Render | Configure a trusted TLS proxy appropriately; never trust arbitrary client forwarding headers |
 | `/health/` returns 503 | Database connectivity failed; investigate server logs and database availability |
 
