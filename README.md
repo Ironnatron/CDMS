@@ -163,6 +163,17 @@ grant Render access only to the repository you want to deploy.
 
 ### B. Apply the Blueprint
 
+Generate a strong, unique secret locally:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(64))"
+```
+
+Copy the result privately. Do not commit it, share it, or paste it into logs.
+Render's automatic 256-bit Blueprint secret is only 44 characters when encoded,
+so it does not meet Django's 50-character deployment check. This Blueprint
+therefore prompts for a longer secret instead.
+
 1. Sign in at <https://dashboard.render.com/>.
 2. Open **Blueprints**, select **New Blueprint Instance** (or **New > Blueprint**).
 3. Connect your GitHub repository and select its `main` branch.
@@ -170,8 +181,15 @@ grant Render access only to the repository you want to deploy.
    database say Free and the estimated charges are zero before applying.**
    If the dashboard still shows paid plans, make sure your latest commit is pushed
    and Render is using the correct repository and branch.
-5. Wait for the database and web service to finish provisioning.
-6. Open the web service's public `https://...onrender.com` URL.
+5. When prompted for `DJANGO_SECRET_KEY`, paste the generated secret.
+6. Wait for the database and web service to finish provisioning.
+7. Open the web service's public `https://...onrender.com` URL.
+
+For an **existing** Blueprint, Render does not prompt again for `sync: false`
+variables. Open the web service's **Environment** page, replace
+`DJANGO_SECRET_KEY` with the generated secret, and select **Save, rebuild, and
+deploy**. Changing an existing key invalidates sessions and other Django-signed
+data. Keep the new key stable on future deploys; never regenerate it in a build.
 
 If you already created paid resources, pushing this file alone does not guarantee
 they have been downgraded or stopped. Review their plans and charges in the
@@ -182,7 +200,7 @@ The Blueprint:
 
 - Creates a free database and a free web service in the same region.
 - Injects the database's internal connection URL into `DATABASE_URL`.
-- Generates a private `DJANGO_SECRET_KEY`.
+- Prompts for a private `DJANGO_SECRET_KEY` on initial Blueprint creation.
 - Sets `DJANGO_DEBUG=False`.
 - Runs `bash build.sh` to install packages, collect CSS, and check deployment settings,
   then runs `python manage.py migrate --no-input` during the build. The free plan
@@ -260,7 +278,7 @@ Do not do this as well as applying the Blueprint; choose one deployment method.
 | Start command | `python -m gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --access-logfile - --error-logfile -` |
 | Health check path | `/health/` |
 | `DJANGO_DEBUG` | `False` |
-| `DJANGO_SECRET_KEY` | Generate a strong random secret in Render |
+| `DJANGO_SECRET_KEY` | Generate the long random secret as described above and paste it into Render |
 | `DATABASE_URL` | Database **internal** connection URL |
 
 The root `.python-version` selects Python 3.12. Disable the database's external
@@ -322,7 +340,7 @@ Before a public business launch:
 
 | Symptom | Resolution |
 | --- | --- |
-| Missing-secret startup error | Generate/set `DJANGO_SECRET_KEY`; do not leave the example blank |
+| Missing-secret startup error or `security.W009` | Generate a long random `DJANGO_SECRET_KEY` as above, set it in the web service's Environment, and rebuild |
 | Database connection or SSL error | Verify the database URL, provider status, TLS, and Render logs; use the internal URL for Render PostgreSQL |
 | HTTP 400 / `DisallowedHost` | Set the exact hostname in `DJANGO_ALLOWED_HOSTS` |
 | CSRF 403 after adding a custom domain | Set its full HTTPS origin and confirm proxy/TLS configuration |
