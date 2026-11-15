@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ document.title }} | Task manager{% endblock %}
+{% block content %}
+{% include "documents/warning.html" %}
+<a class="back-link" href="{% url 'documents:list' %}">Back to documents</a>
+<article class="card detail-card">
+    <h1>{{ document.title }}</h1>
+    <dl class="metadata">
+        <dt>File</dt><dd>{{ document.original_name }}</dd>
+        <dt>Uploaded by</dt><dd>{{ document.uploaded_by.username }}</dd>
+        <dt>Uploaded</dt><dd>{{ document.uploaded_at|date:"M j, Y, H:i" }} UTC</dd>
+    </dl>
+    <div class="actions">
+        <a class="button" href="{% url 'documents:download' document.pk %}">Download</a>
+        {% if document_role == "administrator" %}
+            <a class="button danger" href="{% url 'documents:delete' document.pk %}">Delete</a>
+        {% endif %}
+    </div>
+</article>
+{% endblock %}

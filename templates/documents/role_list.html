@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Manage document roles | Task manager{% endblock %}
+{% block content %}
+{% include "documents/warning.html" %}
+<a class="back-link" href="{% url 'documents:list' %}">Back to documents</a>
+<section class="card form-card">
+    <h1>Manage document roles</h1>
+    <p>Every assigned role can read and download all documents. Clinicians and administrators can upload; only administrators can delete and manage roles.</p>
+    <p>Users must already have an active account. Accounts have no document access until assigned a role.</p>
+    <form method="post">
+        {% csrf_token %}
+        {% include "includes/form_fields.html" %}
+        <button class="button" type="submit">Assign or update role</button>
+    </form>
+    <h2>Current access</h2>
+    <ul class="role-list">
+        {% for role in roles %}
+            <li>
+                <span>{{ role.user.username }} &mdash; {{ role.get_role_display }}{% if not role.user.is_active %} (inactive){% endif %}</span>
+                {% if role.user_id != user.pk %}
+                    <form method="post" action="{% url 'documents:remove_role' role.pk %}">
+                        {% csrf_token %}
+                        <button class="button secondary" type="submit">Remove access</button>
+                    </form>
+                {% endif %}
+            </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock %}

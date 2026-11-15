@@ -4,6 +4,10 @@ A complete server-rendered Django application with user authentication and priva
 task CRUD. Uses Django 5.2 LTS, SQLite locally, PostgreSQL on Render, and WhiteNoise
 for production CSS. No frontend build tools or third-party CDN assets are needed.
 
+**Clinical document functionality is a synthetic-data prototype only. Never
+upload real patient information, clinical data, or sensitive identifiers.** The
+application is not validated for HIPAA, GDPR, or other clinical requirements.
+
 ## Features
 
 - Signup with Django password validation and hashed passwords.
@@ -15,6 +19,7 @@ for production CSS. No frontend build tools or third-party CDN assets are needed
 - CSRF protection on every mutation and template autoescaping for user content.
 - Django admin for trusted staff to manage users and all tasks.
 - Database-aware health endpoint, deployment configuration, and automated tests.
+- Optional synthetic-document uploads and shared organization roles, disabled by default.
 
 ## 1. Run locally (Windows PowerShell)
 
@@ -50,6 +55,96 @@ The generated `.env` and local database are ignored by Git. Do not share secrets
 or commit either file. Local development uses SQLite automatically when
 `DJANGO_DEBUG=True` and `DATABASE_URL` is empty.
 
+### Synthetic document prototype
+
+The prototype has **one shared organization**. All users assigned any document
+role can see and download **every** document; there are no per-document permissions
+or separate organizations. User registration does not grant document access.
+
+| Document role | Permissions |
+| --- | --- |
+| Administrator | Read and download all documents, upload, delete, and assign or remove roles |
+| Clinician | Read, download, and upload documents |
+| Viewer | Read and download documents |
+| No role | No document access, even if the user has a task account |
+
+Administrators cannot remove or downgrade their own role through the interface.
+A Django superuser or staff account does not automatically receive a document
+role. Tasks remain private to their owners and use their existing permissions.
+Uploaded documents must be deleted before the uploader's user account can be
+deleted.
+
+**Enable locally and create the first document administrator:**
+
+1. Make sure migrations have been applied with `manage.py migrate` and create an
+   ordinary account at `/accounts/signup/`. Use a fictional username.
+2. Set `SYNTHETIC_DOCUMENTS_ENABLED=True` in your existing `.env` file.
+3. In a separate PowerShell terminal, run:
+
+   ```powershell
+   .\.venv\Scripts\python.exe manage.py set_document_role YOUR_USERNAME administrator
+   ```
+
+4. Restart `runserver`, log in as that user, and open **Documents**. In **Manage
+   roles**, assign existing active accounts the clinician, viewer, or administrator
+   role. Access changes take effect on the next request.
+5. Upload a fictional `.pdf` or `.txt` file, up to 5 MB. No file content is
+   inspected or scanned; file extensions do not prove a file is safe.
+
+Set `SYNTHETIC_DOCUMENTS_ENABLED=False` and restart to disable **all** document
+routes. This does not erase existing files or database entries. Files are stored
+outside the static folder in ignored `private_documents/` and are available only
+through authenticated role-checked downloads in the app. They are not encrypted
+by the application; access to the machine or its storage can bypass the app.
+
+### Optional Render demo setup
+
+Deploy the latest code and migrations first. **Render's free filesystem is
+ephemeral**: uploaded files may disappear on restart, spin-down, or redeploy while
+their database records remain. Missing-file downloads show an error; an
+administrator can delete the stale record. Do not rely on this as a backup.
+
+1. Under the web service's **Environment**, set
+   `SYNTHETIC_DOCUMENTS_ENABLED` to `True`; choose **Save, rebuild, and deploy**.
+   Never enable this for real clinical or patient data.
+2. Register a fictional account on the deployed site. The free service has no
+   Shell, so the first administrator must be assigned from a trusted local machine.
+3. In Render's database **Info > Networking**, temporarily allow **only your trusted
+   machine's public IP address** (`/32` for IPv4). Note the existing rules so
+   you can restore them. Obtain the database's **external** PostgreSQL URL from
+   **Connect**; it contains credentials and must remain private.
+4. Open a **new PowerShell window** in this project, with dependencies installed
+   and migrations already deployed, then run:
+
+   ```powershell
+   $env:DJANGO_DEBUG = 'False'
+   $env:DJANGO_ALLOWED_HOSTS = 'localhost'
+   $env:DJANGO_SECRET_KEY = & .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(64))"
+   $secureUrl = Read-Host "Paste the external PostgreSQL URL (hidden)" -AsSecureString
+   $env:DATABASE_URL = [System.Net.NetworkCredential]::new('', $secureUrl).Password
+   try {
+       & .\.venv\Scripts\python.exe manage.py set_document_role YOUR_USERNAME administrator
+       if ($LASTEXITCODE -ne 0) { throw "Role assignment failed; see the error above." }
+   } finally {
+       Remove-Item Env:\DATABASE_URL, Env:\DJANGO_SECRET_KEY, Env:\DJANGO_DEBUG, Env:\DJANGO_ALLOWED_HOSTS
+       Remove-Variable secureUrl
+   }
+   ```
+
+   Replace `YOUR_USERNAME` with the already-registered fictional account. This
+   command uses the external database connection, not your local SQLite database.
+   The temporary secret above is only for the local management command and does
+   not change Render's `DJANGO_SECRET_KEY`.
+5. Restore the database's previous networking rules immediately, including an
+   empty allowlist if using the supplied Blueprint. Log in and use **Documents >
+   Manage roles** to grant other accounts access. Do not commit the database URL
+   or send it to anyone.
+
+This prototype lacks, among other things, clinical-grade security review, audit
+logging, malware scanning, durable encrypted document storage, backups, email
+verification, password recovery, MFA, and production access governance. It must
+not be used for real patient data, even if enabled on a public Render service.
+
 ### Tests
 
 After configuring `.env`:
@@ -57,13 +152,14 @@ After configuring `.env`:
 ```powershell
 .\.venv\Scripts\python.exe manage.py check
 .\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run
-.\.venv\Scripts\python.exe manage.py test tasks
+.\.venv\Scripts\python.exe manage.py test tasks documents
 ```
 
 The tests cover signup/password validation, login/logout, safe redirects, private
 task access, CRUD, validation, optional dates, pagination, escaped user content,
-CSRF rejection, and health-check failures. Tests use a separate temporary database
-and do not create example accounts in your local database.
+CSRF rejection, health-check failures, document role enforcement, file validation,
+and synthetic document operations. Tests use a separate temporary database and
+temporary files; they do not create example accounts in your local database.
 
 ## 2. Project layout
 
@@ -80,10 +176,16 @@ tasks/
   admin.py                Staff administration
   tests.py                Behavior tests
   migrations/             Committed database schema migrations
+documents/
+  models.py               Shared synthetic documents and per-user document roles
+  forms.py / views.py     Upload validation and role-checked operations
+  management/commands/    First-administrator role assignment
+  tests.py / migrations/  Prototype tests and database migrations
 templates/
   base.html               Shared navigation and messages
   registration/           Signup and login
   tasks/                  List, detail, editor, and deletion confirmation
+  documents/              Synthetic-document and role management pages
   includes/               Shared form rendering
 static/css/app.css        Responsive styling
 manage.py                 Django command-line entry point
@@ -106,6 +208,11 @@ render.yaml              Render web service and PostgreSQL Blueprint
 | `/tasks/<id>/` | Task details |
 | `/tasks/<id>/edit/` | Edit a task |
 | `/tasks/<id>/delete/` | GET confirmation; POST deletion |
+| `/documents/` | Shared synthetic documents, when enabled and role-authorized |
+| `/documents/new/` | Synthetic file upload for clinicians and administrators |
+| `/documents/<id>/download/` | Role-checked attachment download |
+| `/documents/<id>/delete/` | Administrator-only confirmation and deletion |
+| `/documents/roles/` | Administrator-only role management |
 | `/admin/` | Trusted staff administration |
 | `/health/` | GET database health: 200 `{"status":"ok"}` or 503 |
 
@@ -304,6 +411,7 @@ an existing app to a new database does not automatically transfer its data.
 | `DJANGO_SECRET_KEY` | Required everywhere; generated once and kept private |
 | `DJANGO_DEBUG` | `True` locally only; defaults to `False` |
 | `DATABASE_URL` | Optional locally; required PostgreSQL URL in production |
+| `SYNTHETIC_DOCUMENTS_ENABLED` | Explicit opt-in; defaults to `False`. Synthetic data only |
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated exact hostnames, without schemes |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | Comma-separated origins including `https://` |
 | `RENDER_EXTERNAL_HOSTNAME` | Provided by Render; automatically allowed |
@@ -319,9 +427,10 @@ hostname to `DJANGO_ALLOWED_HOSTS` and its HTTPS URL to
 `DJANGO_CSRF_TRUSTED_ORIGINS`, retaining any existing entries, and redeploy.
 Never use `*` for allowed hosts or turn on production debug to work around errors.
 
-Render's filesystem is ephemeral. PostgreSQL stores all persistent application
-data; there are no file uploads. If you later add uploads, use durable object
-storage instead of writing to the web service's local filesystem.
+Render's filesystem is ephemeral. PostgreSQL stores account, task, document
+metadata, and role records; optional synthetic document files are temporary and
+may disappear independently. Durable, approved object storage and a full security
+review are required before considering any real clinical data.
 
 This is a functional starter, not a complete operational security program.
 Before a public business launch:

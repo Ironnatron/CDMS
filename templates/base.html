@@ -13,6 +13,10 @@
             <a class="brand" href="{% url 'tasks:list' %}">Task manager</a>
             <div class="nav-actions">
                 {% if user.is_authenticated %}
+                    <a href="{% url 'tasks:list' %}">Tasks</a>
+                    {% if synthetic_documents_enabled %}
+                        <a href="{% url 'documents:list' %}">Documents</a>
+                    {% endif %}
                     <span class="username">{{ user.username }}</span>
                     <form method="post" action="{% url 'logout' %}">
                         {% csrf_token %}

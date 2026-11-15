@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Upload document | Task manager{% endblock %}
+{% block content %}
+{% include "documents/warning.html" %}
+<section class="card form-card">
+    <h1>Upload a synthetic document</h1>
+    <p class="muted">PDF or TXT; maximum 5 MB. Do not include real patient information in files or titles.</p>
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% include "includes/form_fields.html" %}
+        <div class="actions">
+            <button class="button" type="submit">Upload</button>
+            <a href="{% url 'documents:list' %}">Cancel</a>
+        </div>
+    </form>
+</section>
+{% endblock %}

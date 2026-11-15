@@ -74,6 +74,10 @@ textarea { resize: vertical; }
 .helptext ul { padding-left: 20px; }
 .errorlist { color: var(--danger); padding-left: 20px; }
 .message { margin-bottom: 24px; border-radius: 8px; padding: 14px 18px; background: #e1f4e9; color: #16613e; }
+.message.error { background: #fff0ef; color: var(--danger); }
+.prototype-warning { margin-bottom: 24px; padding: 16px 18px; border: 1px solid #d5ab45; border-radius: 8px; background: #fff5d9; color: #583b00; }
+.role-list { padding: 0; list-style: none; }
+.role-list li { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
 .empty-state { text-align: center; padding: 48px 24px; }
 .back-link { display: inline-block; margin-bottom: 20px; }
 .detail-card h1 { margin-top: 20px; }

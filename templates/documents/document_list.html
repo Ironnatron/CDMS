@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Documents | Task manager{% endblock %}
+{% block content %}
+{% include "documents/warning.html" %}
+<div class="page-heading">
+    <div>
+        <h1>Shared documents</h1>
+        <p class="muted">Synthetic prototype &middot; {{ document_role|title }}</p>
+    </div>
+    <div class="actions">
+        {% if document_role == "administrator" %}
+            <a href="{% url 'documents:roles' %}">Manage roles</a>
+        {% endif %}
+        {% if document_role != "viewer" %}
+            <a class="button" href="{% url 'documents:create' %}">Upload document</a>
+        {% endif %}
+    </div>
+</div>
+{% if documents %}
+    <div class="task-grid">
+        {% for document in documents %}
+            <article class="card task-card">
+                <h2><a href="{{ document.get_absolute_url }}">{{ document.title }}</a></h2>
+                <p class="muted">Uploaded by {{ document.uploaded_by.username }} on {{ document.uploaded_at|date:"M j, Y" }} UTC</p>
+                <div class="actions">
+                    <a href="{% url 'documents:download' document.pk %}">Download</a>
+                    {% if document_role == "administrator" %}
+                        <a class="danger-link" href="{% url 'documents:delete' document.pk %}">Delete</a>
+                    {% endif %}
+                </div>
+            </article>
+        {% endfor %}
+    </div>
+    {% if is_paginated %}
+        <nav class="pagination" aria-label="Document pages">
+            {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+            <span>Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
+            {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+        </nav>
+    {% endif %}
+{% else %}
+    <section class="card empty-state">
+        <h2>No documents yet</h2>
+        <p class="muted">Upload only fictional files. Never use real patient information.</p>
+        {% if document_role != "viewer" %}
+            <a class="button" href="{% url 'documents:create' %}">Upload a document</a>
+        {% endif %}
+    </section>
+{% endif %}
+{% endblock %}

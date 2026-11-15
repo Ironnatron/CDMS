@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "tasks.apps.TasksConfig",
+    "documents.apps.DocumentsConfig",
 ]
 
 MIDDLEWARE = [
@@ -66,6 +67,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "documents.context_processors.document_feature",
             ]
         },
     }
@@ -111,6 +113,10 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+SYNTHETIC_DOCUMENTS_ENABLED = (
+    os.environ.get("SYNTHETIC_DOCUMENTS_ENABLED", "False").lower() == "true"
+)
+PRIVATE_DOCUMENT_ROOT = BASE_DIR / "private_documents"
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {
